@@ -47,7 +47,7 @@ local CFG = {
     RowHeight = 46,
     Corner = 10,
     LogoAssetId = "rbxassetid://114472961937918",
-    ToggleIconAssetId = "rbxassetid://138056446072587",
+    ToggleIconAssetId = "rbxassetid://114472961937918",
     LogoHeight = 56,
 }
 FE4R.Config = CFG
@@ -152,8 +152,6 @@ function FE4R:CreateWindow(cfg)
     local Window = {}
     Window.Tabs = {}
     Window.ActiveTab = nil
-    Window.Minimized = false
-    Window.Maximized = false
 
     local title = cfg.Title or "FE4R Scripts"
     local subtitle = cfg.Subtitle or "created by Fe4r"
@@ -235,7 +233,7 @@ function FE4R:CreateWindow(cfg)
         Name = "Controls",
         AnchorPoint = Vector2.new(1, 0.5),
         Position = UDim2.new(1, 0, 0.5, 0),
-        Size = UDim2.fromOffset(96, 28),
+        Size = UDim2.fromOffset(28, 28),
         BackgroundTransparency = 1,
         Parent = Topbar,
     }, {
@@ -453,41 +451,8 @@ function FE4R:CreateWindow(cfg)
         Parent = Content,
     })
 
-    local sizeGen = 0
-    local function updateWindowSize()
-        sizeGen = sizeGen + 1
-        local myGen = sizeGen
-        if Window.Minimized then
-            Body.Visible = false
-            Tween(Main, 0.2, { Size = UDim2.fromOffset(CFG.WindowSize.X, CFG.TopbarHeight) })
-        else
-            local targetSize
-            if Window.Maximized then
-                targetSize = UDim2.fromOffset(CFG.WindowSize.X + 140, CFG.WindowSize.Y + 90)
-            else
-                targetSize = UDim2.fromOffset(CFG.WindowSize.X, CFG.WindowSize.Y)
-            end
-            Tween(Main, 0.2, { Size = targetSize })
-            task.delay(0.2, function()
-                if sizeGen == myGen then Body.Visible = true end
-            end)
-        end
-    end
-
-    CtrlButton("-", 1, function()
-        Window.Minimized = not Window.Minimized
-        if Window.Minimized then Window.Maximized = false end
-        updateWindowSize()
-    end)
-
-    CtrlButton("\u{25A1}", 2, function()
-        Window.Maximized = not Window.Maximized
-        if Window.Maximized then Window.Minimized = false end
-        updateWindowSize()
-    end)
-
     local ToggleBtn
-    CtrlButton("\u{00D7}", 3, function()
+    CtrlButton("\u{00D7}", 1, function()
         Main.Visible = false
     end)
 
