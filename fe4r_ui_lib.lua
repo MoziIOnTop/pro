@@ -111,6 +111,16 @@ end
 
 local function MakeDraggable(handle, target)
     local dragging, dragStart, startPos = false, nil, nil
+    local function clampPosition(pos)
+        local vp = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize or Vector2.new(1280, 720)
+        local sz = target.AbsoluteSize
+        local halfW, halfH = sz.X / 2, sz.Y / 2
+        local absX = pos.X.Scale * vp.X + pos.X.Offset
+        local absY = pos.Y.Scale * vp.Y + pos.Y.Offset
+        absX = math.clamp(absX, halfW, math.max(vp.X - halfW, halfW))
+        absY = math.clamp(absY, halfH, math.max(vp.Y - halfH, halfH))
+        return UDim2.new(0, absX, 0, absY)
+    end
     handle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
@@ -128,10 +138,11 @@ local function MakeDraggable(handle, target)
         if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
                       or input.UserInputType == Enum.UserInputType.Touch) then
             local d = input.Position - dragStart
-            target.Position = UDim2.new(
+            local newPos = UDim2.new(
                 startPos.X.Scale, startPos.X.Offset + d.X,
                 startPos.Y.Scale, startPos.Y.Offset + d.Y
             )
+            target.Position = clampPosition(newPos)
         end
     end)
 end
@@ -478,7 +489,6 @@ function FE4R:CreateWindow(cfg)
     local ToggleBtn
     CtrlButton("\u{00D7}", 3, function()
         Main.Visible = false
-        if ToggleBtn then ToggleBtn.Visible = true end
     end)
 
     MakeDraggable(Topbar, Main)
@@ -492,7 +502,7 @@ function FE4R:CreateWindow(cfg)
         BackgroundTransparency = 0.12,
         Text = "",
         AutoButtonColor = false,
-        Visible = false,
+        Visible = true,
         Parent = ScreenGui,
     }, { Corner(12), Stroke() })
 
@@ -507,15 +517,13 @@ function FE4R:CreateWindow(cfg)
     })
 
     ToggleBtn.MouseButton1Click:Connect(function()
-        Main.Visible = true
-        ToggleBtn.Visible = false
+        Main.Visible = not Main.Visible
     end)
     MakeDraggable(ToggleBtn, ToggleBtn)
 
     UserInputService.InputBegan:Connect(function(input, processed)
         if not processed and input.KeyCode == (cfg.ToggleKey or Enum.KeyCode.RightShift) then
             Main.Visible = not Main.Visible
-            ToggleBtn.Visible = not Main.Visible
         end
     end)
 
